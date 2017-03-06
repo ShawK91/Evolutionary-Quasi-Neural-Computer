@@ -1,13 +1,101 @@
 from random import randint
-import math, copy
-#import MultiNEAT as NEAT
+import math
 import numpy as np
 import random
+import copy
 from copy import deepcopy
-from scipy.special import expit
+#from scipy.special import expit
 import sys,os, cPickle
 
 
+def generate_training_data(graph_dim):
+    train_x = []; train_y = []
+
+    x_raw = np.loadtxt('test_x.csv', delimiter=',')
+    y_raw = np.loadtxt('test_y.csv', delimiter = ',')
+
+    #One hot representation
+    decorator_one_hot = [0]*graph_dim**2
+    for i in range(graph_dim):
+        for j in range(graph_dim):
+            row_x = []
+            #Left
+            row_x += decorator_one_hot
+            row_x[i * 4 + j] = 1 #Self label
+            if j == 0: #Edge
+                row_x.append(100)
+                row_x += decorator_one_hot
+            else:
+                if x_raw[i][j-1] == -1: row_x.append(100)
+                else: row_x.append(1)
+                ig = decorator_one_hot[:]
+                ig[i * 4 + j - 1] = 1
+                row_x += ig
+
+            if i == 0 and j == 0: x = np.reshape(np.array(row_x), (1, len(row_x)))
+            else: x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
+            row_x = []
+
+            #Right
+            row_x += decorator_one_hot
+            row_x[i * 4 + j] = 1 #Self label
+            if j == graph_dim-1: #Edge
+                row_x.append(100)
+                row_x += decorator_one_hot
+            else:
+                if x_raw[i][j+1] == -1: row_x.append(100)
+                elif x_raw[i][j+1] == 2: row_x.append(1)
+                ig = decorator_one_hot[:]
+                ig[i * 4 + j + 1] = 1
+                row_x += ig
+
+            x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
+            row_x = []
+
+            #Up
+            row_x += decorator_one_hot
+            row_x[i * 4 + j] = 1 #Self label
+            if i == 0: #Edge
+                row_x.append(100)
+                row_x += decorator_one_hot
+            else:
+                if x_raw[i-1][j] == -1: row_x.append(100)
+                elif x_raw[i-1][j] == 2: row_x.append(1)
+                ig = decorator_one_hot[:]
+                ig[(i-1) * 4 + j] = 1
+                row_x += ig
+
+            x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
+            row_x = []
+
+            #Down
+            row_x += decorator_one_hot
+            row_x[i * 4 + j] = 1 #Self label
+            if i == graph_dim-1: #Edge
+                row_x.append(100)
+                row_x += decorator_one_hot
+            else:
+                if x_raw[i+1][j] == -1: row_x.append(100)
+                elif x_raw[i+1][j] == 2: row_x.append(1)
+                ig = decorator_one_hot[:]
+                ig[(i+1) * 4 + j] = 1
+                row_x += ig
+
+            x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
+            row_x = []
+
+
+
+        #Target path
+        y = []
+        for label in y_raw:
+            ig = decorator_one_hot[:]
+            ig[int((label[0]-1) * 4) + int(label[1]-1)] = 1
+            y.append(ig)
+
+
+        y = np.array(y)
+        return x,y
 
 class ROM: #Deal with input graph (store it in a Read Only Memory)
     def __init__(self):
@@ -27,15 +115,18 @@ class ROM: #Deal with input graph (store it in a Read Only Memory)
 
         result = []
         for entry in self.graph:
-            if np.sum(entry[0:self.label_length] - query) == 0:
+            if np.sum(abs(entry[0:self.label_length] - query)) == 0:
                 result.append(entry[self.label_length:])
+
+        while len(result) != 4:
+            result.append([0]*(self.label_length+1))
 
         return np.mat(np.array(result))
 
 class Memory_Bank:
     def __init__(self, heap_x, heap_y):
         self.heap_x = heap_x; self.heap_y = heap_y
-        self.heap = np.zeros((heap_x, heap_y))
+        self.heap = np.zeros((heap_x, heap_y))+100
         self.write_ptr = 0
         self.read_ptr = 0
 
@@ -53,10 +144,11 @@ class Memory_Bank:
     def write(self, w_c, mem_new):
         self.write_ptr += self.addressing(w_c)
         self.write_ptr = self.write_ptr % self.heap_x
-        self.heap[self.read_ptr, :] = mem_new
+        self.heap[self.write_ptr, :] = mem_new
+        #print self.write_ptr
 
     def reset(self):
-        self.heap = np.zeros((self.heap_x, self.heap_y))
+        self.heap = np.zeros((self.heap_x, self.heap_y))+100
         self.write_ptr = 0
         self.read_ptr = 0
 
@@ -76,14 +168,14 @@ class Primitive_fnc_mod:
             return self.sort_ascending(args)
 
         if self.key == 1:
-            return self.random(args)
+            return self.random_sort(args)
 
         if self.key == 0:
             return self.one_hot_max(args)
 
 
     def one_hot_max(self, args):
-        max = np.max(args)
+        max = np.min(args)
         return (args == max)
 
     def addition(self, i, j):
@@ -111,9 +203,9 @@ class Primitive_fnc_mod:
         return np.argsort(args)
 
     def random_sort(self, args):
-        ig = np.arange(args.shape[1])
+        ig = np.arange(args.shape[0])
         np.random.shuffle(ig)
-        return np.mat(ig)
+        return np.mat(ig).transpose()
 
 class Controller:
     def __init__(self, num_input, num_function, mean = 0, std = 1):
@@ -283,11 +375,13 @@ class ECM:
 
             #Query phase
             h = self.rom.associative_recall(input)
+            #print h.shape
 
             #Primitive Function Phase
             args = self.controller.get_func_args(h)
             func_keys = self.controller.get_func_key(args)
             post_func = self.prim_fnc.func_operation(func_keys, args)
+            #print args.shape, func_keys.shape, post_func.shape
 
             #Update input for next hop
             input = self.controller.update_input(h, post_func)

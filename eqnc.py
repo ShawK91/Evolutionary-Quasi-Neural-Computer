@@ -49,10 +49,10 @@ class Parameters:
             self.reward_scheme = 6
 
             #ECM param
-            self.heap_x = 50
+            self.heap_x = 7
             self.heap_y = 16
             self.graph_dim = 4
-            self.hop_limit = 6
+            self.hop_limit = 7
             self.num_input = self.graph_dim * self.graph_dim
             self.num_func = 3
 
@@ -69,21 +69,25 @@ class Parameters:
 parameters = Parameters() #Create the Parameters class
 tracker = tracker(parameters) #Initiate tracker
 
-
+train_x, train_y = mod.generate_training_data(parameters.graph_dim)
+train_x = np.reshape(train_x, (1, train_x.shape[0], train_x.shape[1]))
+train_y = np.reshape(train_y, (1, train_y.shape[0], train_y.shape[1]))
 
 #Get training data
 #train_x = np.ones((10, parameters.graph_dim**2 * 4, parameters.graph_dim**2 * 2 + 1))
-train_y = np.ones((1, parameters.graph_dim * 2 - 2, parameters.graph_dim**2))
+# train_y = np.ones((1, parameters.graph_dim * 2 - 2, parameters.graph_dim**2))
+#
+# l = []
+# for i in range(parameters.graph_dim**2):
+#     l.append(np.zeros(parameters.graph_dim**2 * 2 + 1)+i)
+#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
+#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
+#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
+#
+# train_x = np.array(l)
+# train_x = np.reshape(train_x, (1, parameters.graph_dim**2 * 4, parameters.graph_dim**2 * 2 + 1))
 
-l = []
-for i in range(parameters.graph_dim**2):
-    l.append(np.zeros(parameters.graph_dim**2 * 2 + 1)+i)
-    l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
-    l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
-    l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
 
-train_x = np.array(l)
-train_x = np.reshape(train_x, (1, parameters.graph_dim**2 * 4, parameters.graph_dim**2 * 2 + 1))
 
 
 
@@ -100,10 +104,17 @@ class Path_finder:
     def get_reward(self, output, target):
         reward = 0
         for i in range(len(target)):
-            reward -= abs(np.sum(output[i] - target[i]))
+            if (output[i] == target[i]).all(): continue
+            else: reward -= 1
 
         #Special penalty for not reaching goal
         reward -= 10 * abs(np.sum(output[-1] - target[-1]))
+
+        # print target
+        # print output
+        # print reward
+        # print
+        # print
         return reward
 
     def run_simulation(self, graph_input, target_path, individual):
@@ -114,6 +125,7 @@ class Path_finder:
     def evolve(self, gen):
         best_epoch_reward = -1000000000
         rand_map_choice = np.random.choice(len(train_x))
+        #rand_map_choice  = 0
 
 
         for i in range(self.parameters.population_size): #Test all genomes/individuals

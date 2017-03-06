@@ -1,8 +1,7 @@
 import numpy as np, os
 import mod_eqnc as mod, sys
-from numpy import linalg as LA
-from random import randint
-import random
+from copy import deepcopy
+
 
 save_foldername = 'R_EQNC'
 class tracker(): #Tracker
@@ -12,8 +11,7 @@ class tracker(): #Tracker
         self.hof_fitnesses = []; self.hof_avg_fitness = 0; self.hof_tr_avg_fit = []
         if not os.path.exists(foldername):
             os.makedirs(foldername)
-            self.file_save = 'ECM.csv'
-
+        self.file_save = 'ECM.csv'
 
     def add_fitness(self, fitness, generation):
         self.fitnesses.append(fitness)
@@ -21,7 +19,7 @@ class tracker(): #Tracker
             self.fitnesses.pop(0)
         self.avg_fitness = sum(self.fitnesses)/len(self.fitnesses)
         if generation % 10 == 0: #Save to csv file
-            filename = self.foldername + '/' + 'rough_' + self.file_save
+            filename = self.foldername + '/ECM_fitness.csv'
             self.tr_avg_fit.append(np.array([generation, self.avg_fitness]))
             np.savetxt(filename, np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
 
@@ -31,7 +29,7 @@ class tracker(): #Tracker
             self.hof_fitnesses.pop(0)
         self.hof_avg_fitness = sum(self.hof_fitnesses)/len(self.hof_fitnesses)
         if generation % 10 == 0: #Save to csv file
-            filename = self.foldername + '/' + 'hof_' + self.file_save
+            filename = self.foldername + '/' + 'hof_fitness.csv'
             self.hof_tr_avg_fit.append(np.array([generation, self.hof_avg_fitness]))
             np.savetxt(filename, np.array(self.hof_tr_avg_fit), fmt='%.3f', delimiter=',')
 
@@ -39,22 +37,19 @@ class tracker(): #Tracker
         self.tr_avg_fit.append(np.array([generation, self.avg_fitness]))
         np.savetxt(filename, np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
 
-
 class Parameters:
     def __init__(self):
             self.population_size = 100
             self.total_gens = 10000
 
-            #Reward scheme
-            self.reward_scheme = 6
-
             #ECM param
-            self.heap_x = 7
+            self.heap_x = 9
             self.heap_y = 16
             self.graph_dim = 4
-            self.hop_limit = 7
+            self.hop_limit = 9
             self.num_input = self.graph_dim * self.graph_dim
             self.num_func = 3
+            self.fitness_trials = 10
 
             #SSNE Stuff
             self.elite_fraction = 0.1
@@ -63,34 +58,39 @@ class Parameters:
             self.weight_magnitude_limit = 1000000000000
             self.mut_distribution = 3  # 1-Gaussian, 2-Laplace, 3-Uniform, ELSE-all 1s
 
-
-
-
 parameters = Parameters() #Create the Parameters class
 tracker = tracker(parameters) #Initiate tracker
 
-train_x, train_y = mod.generate_training_data(parameters.graph_dim)
-train_x = np.reshape(train_x, (1, train_x.shape[0], train_x.shape[1]))
-train_y = np.reshape(train_y, (1, train_y.shape[0], train_y.shape[1]))
 
 #Get training data
-#train_x = np.ones((10, parameters.graph_dim**2 * 4, parameters.graph_dim**2 * 2 + 1))
-# train_y = np.ones((1, parameters.graph_dim * 2 - 2, parameters.graph_dim**2))
-#
-# l = []
-# for i in range(parameters.graph_dim**2):
-#     l.append(np.zeros(parameters.graph_dim**2 * 2 + 1)+i)
-#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
-#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
-#     l.append(np.zeros(parameters.graph_dim ** 2 * 2 + 1) + i)
-#
-# train_x = np.array(l)
-# train_x = np.reshape(train_x, (1, parameters.graph_dim**2 * 4, parameters.graph_dim**2 * 2 + 1))
+train_upper_bound = 2000
+train_data_folder = 'Train_Data/'
+train_x = []; train_y = []
+for i in range(1, train_upper_bound+1):
+    x_filename = train_data_folder + 'maps/' + 'map' + str(i) +'.csv'
+    y_filename = train_data_folder + 'paths/' + 'path' + str(i) + '.csv'
 
+    try:
+        x_raw = np.loadtxt(x_filename, delimiter=',')
+        y_raw = np.loadtxt(y_filename, delimiter=',')
+    except:
+        continue
 
+    x, y = mod.generate_training_data(parameters.graph_dim, x_raw, y_raw)
+    train_x.append(x)
+    train_y.append(y)
 
+#Array format
+train_x = np.array(train_x)
+train_y = np.array(train_y)
 
-
+#Train-Test split
+split = int(0.2*len(train_x))
+ig = np.split(train_x, [split, len(train_x)])
+train_x = ig[0]; test_x = ig[1]
+ig = np.split(train_y, [split, len(train_y)])
+train_y = ig[0]; test_y = ig[1]
+print train_x.shape, test_x.shape, train_y.shape, test_y.shape
 
 
 
@@ -99,22 +99,20 @@ class Path_finder:
         self.parameters = parameters
         self.agent = mod.SSNE(self.parameters)
 
-
-
     def get_reward(self, output, target):
-        reward = 0
+        reward = 0.0
         for i in range(len(target)):
-            if (output[i] == target[i]).all(): continue
-            else: reward -= 1
+            # similarity = (output[i] == target[i]).astype(int)
+            # similarity = (similarity == 0).astype(int)
+            # reward -= sum(similarity)
 
-        #Special penalty for not reaching goal
-        reward -= 10 * abs(np.sum(output[-1] - target[-1]))
+            #print target.shape, output.shape
+            #Bonus if all similar
+            if (output[i] == target[i]).all():
+                reward += 1.0
+        #Normalize 
+        reward /= len(target)
 
-        # print target
-        # print output
-        # print reward
-        # print
-        # print
         return reward
 
     def run_simulation(self, graph_input, target_path, individual):
@@ -124,41 +122,36 @@ class Path_finder:
 
     def evolve(self, gen):
         best_epoch_reward = -1000000000
-        rand_map_choice = np.random.choice(len(train_x))
-        #rand_map_choice  = 0
-
+        rand_map_choices = np.random.choice(len(train_x), parameters.fitness_trials, replace=False)
 
         for i in range(self.parameters.population_size): #Test all genomes/individuals
-            reward = self.run_simulation(train_x[rand_map_choice], train_y[rand_map_choice], self.agent.pop[i])
+            reward = 0
+            for choice in rand_map_choices:
+                reward += self.run_simulation(train_x[choice], train_y[choice], self.agent.pop[i])
+            reward /= parameters.fitness_trials
             self.agent.fitness_evals[i] = reward
-            #print reward
             if reward > best_epoch_reward: best_epoch_reward = reward
 
-        # #HOF test net
-        # hof_index = self.agent.fitness_evals.index(max(self.agent.fitness_evals))
-        # hof_score = self.test_net(hof_index)
+        #HOF test net
+        hof_index = self.agent.fitness_evals.index(max(self.agent.fitness_evals))
+        #self.agent.hof_net = deepcopy(self.agent.pop[hof_index])
 
         #Save population and HOF
         if (gen + 1) % 1 == 0:
             mod.pickle_object(self.agent.pop, save_foldername + '/seq_recall_pop')
-            #mod.pickle_object(self.agent.pop[hof_index], save_foldername + '/seq_recall_hof')
+            mod.pickle_object(self.agent.pop[hof_index], save_foldername + '/seq_recall_hof')
             np.savetxt(save_foldername + '/gen_tag', np.array([gen + 1]), fmt='%.3f', delimiter=',')
 
         self.agent.epoch()
         return best_epoch_reward
 
-
-
 if __name__ == "__main__":
     print 'Running ECM'
     task = Path_finder(parameters)
     for gen in range(parameters.total_gens):
-
-        #task.agent.pop[0].feedforward(train_x[0])
-
         epoch_reward = task.evolve(gen)
         print 'Gen:', gen, ' Ep_rew:', "%0.2f" % epoch_reward#, ' Cml_Hof_rew:', "%0.2f" % tracker.hof_avg_fitness
-        #tracker.add_fitness(epoch_reward, gen)  # Add average global performance to tracker
+        tracker.add_fitness(epoch_reward, gen)  # Add average global performance to tracker
         #tracker.add_hof_fitness(hof_score, gen)  # Add average global performance to tracker
 
 

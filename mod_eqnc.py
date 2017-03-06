@@ -8,11 +8,10 @@ from copy import deepcopy
 import sys,os, cPickle
 
 
-def generate_training_data(graph_dim):
+def generate_training_data(graph_dim, x_raw, y_raw):
     train_x = []; train_y = []
 
-    x_raw = np.loadtxt('test_x.csv', delimiter=',')
-    y_raw = np.loadtxt('test_y.csv', delimiter = ',')
+
 
     #One hot representation
     decorator_one_hot = [0]*graph_dim**2
@@ -44,7 +43,7 @@ def generate_training_data(graph_dim):
                 row_x += decorator_one_hot
             else:
                 if x_raw[i][j+1] == -1: row_x.append(100)
-                elif x_raw[i][j+1] == 2: row_x.append(1)
+                else: row_x.append(1)
                 ig = decorator_one_hot[:]
                 ig[i * 4 + j + 1] = 1
                 row_x += ig
@@ -60,7 +59,7 @@ def generate_training_data(graph_dim):
                 row_x += decorator_one_hot
             else:
                 if x_raw[i-1][j] == -1: row_x.append(100)
-                elif x_raw[i-1][j] == 2: row_x.append(1)
+                else: row_x.append(1)
                 ig = decorator_one_hot[:]
                 ig[(i-1) * 4 + j] = 1
                 row_x += ig
@@ -76,7 +75,7 @@ def generate_training_data(graph_dim):
                 row_x += decorator_one_hot
             else:
                 if x_raw[i+1][j] == -1: row_x.append(100)
-                elif x_raw[i+1][j] == 2: row_x.append(1)
+                else: row_x.append(1)
                 ig = decorator_one_hot[:]
                 ig[(i+1) * 4 + j] = 1
                 row_x += ig
@@ -86,16 +85,16 @@ def generate_training_data(graph_dim):
 
 
 
-        #Target path
-        y = []
-        for label in y_raw:
-            ig = decorator_one_hot[:]
-            ig[int((label[0]-1) * 4) + int(label[1]-1)] = 1
-            y.append(ig)
+    #Target path
+    y = []
+    for label in y_raw:
+        ig = decorator_one_hot[:]
+        ig[int((label[0]-1) * 4) + int(label[1]-1)] = 1
+        y.append(ig)
 
 
-        y = np.array(y)
-        return x,y
+    y = np.array(y)
+    return x,y
 
 class ROM: #Deal with input graph (store it in a Read Only Memory)
     def __init__(self):
@@ -105,8 +104,8 @@ class ROM: #Deal with input graph (store it in a Read Only Memory)
     def get_graph(self, graph):
         self.graph = copy.deepcopy(graph)
         self.label_length = (graph.shape[1]-1)/2
-        start = graph[0][0:self.label_length]
-        end = graph[-1][self.label_length+1:]
+        start = graph[-1][0:self.label_length]
+        end = graph[0][self.label_length+1:]
         return start, end
 
     def associative_recall(self, query):
@@ -144,6 +143,7 @@ class Memory_Bank:
     def write(self, w_c, mem_new):
         self.write_ptr += self.addressing(w_c)
         self.write_ptr = self.write_ptr % self.heap_x
+        #self.write_ptr += 1
         self.heap[self.write_ptr, :] = mem_new
         #print self.write_ptr
 
@@ -162,21 +162,26 @@ class Primitive_fnc_mod:
 
 
 
-    def func_operation(self, func_keys, args):
+    def func_operation(self, func_keys, *args):
         self.key = np.argmax(func_keys)
         if self.key == 2:
             return self.sort_ascending(args)
 
         if self.key == 1:
-            return self.random_sort(args)
+            #return self.random_sort(args)
+            return self.similarity(args)
 
         if self.key == 0:
-            return self.one_hot_max(args)
+            return self.one_hot_min(args)
 
+    def similarity(self, args):
+        return np.sum((args[0] == args[1]).astype(int), axis=1)
 
-    def one_hot_max(self, args):
-        max = np.min(args)
-        return (args == max)
+    def one_hot_min(self, args):
+        ig = args[0]
+        if ig.shape[1] != 1: ig = np.sum(ig, axis=1)
+        min = np.min(ig)
+        return (ig == min).astype(int)
 
     def addition(self, i, j):
         return i + j
@@ -200,10 +205,12 @@ class Primitive_fnc_mod:
         return LA.norm(i - j)
 
     def sort_ascending(self, args):
-        return np.argsort(args)
+        ig = np.argsort(args[0])
+        if ig.shape[1] != 1: ig = np.sum(ig, axis=1)
+        return ig
 
     def random_sort(self, args):
-        ig = np.arange(args.shape[0])
+        ig = np.arange(args[0].shape[0])
         np.random.shuffle(ig)
         return np.mat(ig).transpose()
 
@@ -222,13 +229,21 @@ class Controller:
         self.w_write_key = np.mat(np.random.normal(mean, std, 1 * (self.mem_size + self.num_input)))
         self.w_write_key = np.mat(np.reshape(self.w_write_key, ((self.mem_size + self.num_input), 1)))
 
-        #Post Query - preprocess to functional operator
-        self.w_pre_func = np.mat(np.random.normal(mean, std, (self.num_input+1)))
-        self.w_pre_func = np.mat(np.reshape(self.w_pre_func, ((self.num_input + 1), 1)))
+        #Post Query - preprocess to functional operator (PARSE QUERY)
+        self.w_pre_func_1 = np.mat(np.random.normal(mean, std, (self.num_input+1)*self.num_input))
+        self.w_pre_func_1 = np.mat(np.reshape(self.w_pre_func_1, ((self.num_input + 1), self.num_input)))
+        self.w_pre_func_2 = np.mat(np.random.normal(mean, std, (self.num_input+1)))
+        self.w_pre_func_2 = np.mat(np.reshape(self.w_pre_func_2, ((self.num_input + 1), 1)))
+
+        #Shape functiona arguments
+        self.w_shape_args = np.mat(np.random.normal(mean, std, 2 * (1)))
+        self.w_shape_args = np.mat(np.reshape(self.w_shape_args, (2, 1)))
 
         #Choice of function operator
-        self.w_func_choice = np.mat(np.random.normal(mean, std,(self.mem_size+self.num_function+1) * (self.num_function)))
-        self.w_func_choice = np.mat(np.reshape(self.w_func_choice, ((self.mem_size+self.num_function+1), self.num_function)))
+        self.w_func_choice_1 = np.mat(np.random.normal(mean, std,(self.num_input*4) * (self.num_function)))
+        self.w_func_choice_1 = np.mat(np.reshape(self.w_func_choice_1, ((self.num_input*4), self.num_function)))
+        self.w_func_choice_2 = np.mat(np.random.normal(mean, std,(self.mem_size+self.num_function+1) * (self.num_function)))
+        self.w_func_choice_2 = np.mat(np.reshape(self.w_func_choice_2, ((self.mem_size+self.num_function+1), self.num_function)))
 
         #Process h to next labels
         self.w_next_labels = np.mat(np.random.normal(mean, std,(self.num_input + 1) * (self.num_input)))
@@ -240,16 +255,25 @@ class Controller:
 
 
     def get_func_args(self, h):
-        return self.linear_combination(h, self.w_pre_func)
+        return self.linear_combination(h, self.w_pre_func_1), self.linear_combination(h, self.w_pre_func_2)
+
+    def shape_f_args(self, f_out_1, f_args_2):
+        ig = np.concatenate((f_out_1, f_args_2), axis=1)
+        return self.linear_combination(ig, self.w_shape_args)
+
 
 
     def get_write_key(self, input):
         ig = np.concatenate((input, self.memory_cell), axis = 1)
         return np.tanh(self.linear_combination(ig, self.w_write_key))
 
-    def get_func_key(self, args):
-        ig = np.concatenate((args.transpose(), self.memory_cell), axis=1)
-        return self.linear_combination(ig, self.w_func_choice)
+    def get_func_key(self, args_1, args_2):
+        ig = np.reshape(args_1, (1, args_1.shape[0]*args_1.shape[1]))
+        keys_1 = self.linear_combination(ig, self.w_func_choice_1)
+        ig = np.concatenate((args_2.transpose(), self.memory_cell), axis=1)
+        keys_2 = self.linear_combination(ig, self.w_func_choice_2)
+        return keys_1, keys_2
+
 
     def update_input(self, h, post_func):
         h_prime = np.delete(h, 0, 1)
@@ -362,6 +386,7 @@ class ECM:
         # Load ROM (Get graph to plan a path on)
         start, end = self.rom.get_graph(input_graph)
         input = np.mat(np.array(start))
+        last_input = input[:]
 
         #Reset memory bank and controller memory
         self.mem_bank.reset()
@@ -375,15 +400,24 @@ class ECM:
 
             #Query phase
             h = self.rom.associative_recall(input)
+
             #print h.shape
 
             #Primitive Function Phase
-            args = self.controller.get_func_args(h)
-            func_keys = self.controller.get_func_key(args)
-            post_func = self.prim_fnc.func_operation(func_keys, args)
+            f_args_1, f_args_2 = self.controller.get_func_args(h) #Process/Parse Query
+            func_keys_1, func_keys_2 = self.controller.get_func_key(f_args_1, f_args_2) #Get Functional head keys
+
+            f_out_1 = self.prim_fnc.func_operation(func_keys_1, f_args_1, last_input)
+            final_args = self.controller.shape_f_args(f_out_1, f_args_2)
+
+            post_func = self.prim_fnc.func_operation(func_keys_1, final_args, last_input)
+
+
+
             #print args.shape, func_keys.shape, post_func.shape
 
             #Update input for next hop
+            last_input = input[:]
             input = self.controller.update_input(h, post_func)
 
             #Update memory
@@ -407,7 +441,7 @@ class SSNE:
             for i in range(self.population_size):
                 self.pop.append(ECM(self.parameters))
             self.hof_net = ECM(self.parameters)
-            self.num_substructures = 5
+            self.num_substructures = 8
 
         def selection_tournament(self, index_rank, num_offsprings, tournament_size):
             total_choices = len(index_rank)
@@ -442,28 +476,54 @@ class SSNE:
                     continue
 
             # Layer 2
-            num_cross_overs = randint(1, len(gene1.w_pre_func))
+            num_cross_overs = randint(1, len(gene1.w_pre_func_1))
             for i in range(num_cross_overs):
                 rand = random.random()
                 if rand < 0.33:
-                    ind_cr = randint(0, len(gene1.w_pre_func) - 1)
-                    gene1.w_pre_func[ind_cr, :] = gene2.w_pre_func[ind_cr, :]
+                    ind_cr = randint(0, len(gene1.w_pre_func_1) - 1)
+                    gene1.w_pre_func_1[ind_cr, :] = gene2.w_pre_func_1[ind_cr, :]
                 elif rand < 0.66:
-                    ind_cr = randint(0, len(gene1.w_pre_func) - 1)
-                    gene2.w_pre_func[ind_cr, :] = gene1.w_pre_func[ind_cr, :]
+                    ind_cr = randint(0, len(gene1.w_pre_func_1) - 1)
+                    gene2.w_pre_func_1[ind_cr, :] = gene1.w_pre_func_1[ind_cr, :]
+                else:
+                    continue
+
+            # Layer 2
+            num_cross_overs = randint(1, len(gene1.w_pre_func_2))
+            for i in range(num_cross_overs):
+                rand = random.random()
+                if rand < 0.33:
+                    ind_cr = randint(0, len(gene1.w_pre_func_2) - 1)
+                    gene1.w_pre_func_2[ind_cr, :] = gene2.w_pre_func_2[ind_cr, :]
+                elif rand < 0.66:
+                    ind_cr = randint(0, len(gene1.w_pre_func_2) - 1)
+                    gene2.w_pre_func_2[ind_cr, :] = gene1.w_pre_func_2[ind_cr, :]
                 else:
                     continue
 
             # Layer 3
-            num_cross_overs = randint(1, len(gene1.w_func_choice))
+            num_cross_overs = randint(1, len(gene1.w_func_choice_1))
             for i in range(num_cross_overs):
                 rand = random.random()
                 if rand < 0.33:
-                    ind_cr = randint(0, len(gene1.w_func_choice) - 1)
-                    gene1.w_func_choice[ind_cr, :] = gene2.w_func_choice[ind_cr, :]
+                    ind_cr = randint(0, len(gene1.w_func_choice_1) - 1)
+                    gene1.w_func_choice_1[ind_cr, :] = gene2.w_func_choice_1[ind_cr, :]
                 elif rand < 0.66:
-                    ind_cr = randint(0, len(gene1.w_func_choice) - 1)
-                    gene2.w_func_choice[ind_cr, :] = gene1.w_func_choice[ind_cr, :]
+                    ind_cr = randint(0, len(gene1.w_func_choice_1) - 1)
+                    gene2.w_func_choice_1[ind_cr, :] = gene1.w_func_choice_1[ind_cr, :]
+                else:
+                    continue
+
+            # Layer 3
+            num_cross_overs = randint(1, len(gene1.w_func_choice_2))
+            for i in range(num_cross_overs):
+                rand = random.random()
+                if rand < 0.33:
+                    ind_cr = randint(0, len(gene1.w_func_choice_2) - 1)
+                    gene1.w_func_choice_2[ind_cr, :] = gene2.w_func_choice_2[ind_cr, :]
+                elif rand < 0.66:
+                    ind_cr = randint(0, len(gene1.w_func_choice_2) - 1)
+                    gene2.w_func_choice_2[ind_cr, :] = gene1.w_func_choice_2[ind_cr, :]
                 else:
                     continue
 
@@ -478,6 +538,20 @@ class SSNE:
                 elif rand < 0.66:
                     ind_cr = randint(0, len(gene1.w_next_labels) - 1)
                     gene2.w_next_labels[ind_cr, :] = gene1.w_next_labels[ind_cr, :]
+                else:
+                    continue
+
+            # BLOCK INPUTS
+            # Layer 1
+            num_cross_overs = randint(1, len(gene1.w_shape_args))
+            for i in range(num_cross_overs):
+                rand = random.random()
+                if rand < 0.33:
+                    ind_cr = randint(0, len(gene1.w_shape_args) - 1)
+                    gene1.w_shape_args[ind_cr, :] = gene2.w_shape_args[ind_cr, :]
+                elif rand < 0.66:
+                    ind_cr = randint(0, len(gene1.w_shape_args) - 1)
+                    gene2.w_shape_args[ind_cr, :] = gene1.w_shape_args[ind_cr, :]
                 else:
                     continue
 
@@ -538,40 +612,98 @@ class SSNE:
 
             # Layer 2
             if random.random() < ss_mut_dist[1]:
-                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_pre_func.size))
+                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_pre_func_1.size))
                 for i in range(num_mutations):
-                    ind_dim1 = randint(0, gene.w_pre_func.shape[0] - 1)
-                    ind_dim2 = randint(0, gene.w_pre_func.shape[1] - 1)
+                    ind_dim1 = randint(0, gene.w_pre_func_1.shape[0] - 1)
+                    ind_dim2 = randint(0, gene.w_pre_func_1.shape[1] - 1)
                     if random.random() < super_mut_prob:  # Super mutation
-                        gene.w_pre_func[ind_dim1, ind_dim2] += random.gauss(0, super_mut_strength *
-                                                                               gene.w_pre_func[
+                        gene.w_pre_func_1[ind_dim1, ind_dim2] += random.gauss(0, super_mut_strength *
+                                                                               gene.w_pre_func_1[
                                                                                    ind_dim1, ind_dim2])
                     else:  # Normal mutation
-                        gene.w_pre_func[ind_dim1, ind_dim2] += random.gauss(0, mut_strength * gene.w_pre_func[
+                        gene.w_pre_func_1[ind_dim1, ind_dim2] += random.gauss(0, mut_strength * gene.w_pre_func_1[
                             ind_dim1, ind_dim2])
 
                     # Regularization hard limit
-                    gene.w_pre_func[ind_dim1, ind_dim2] = self.regularize_weight(
-                        gene.w_pre_func[ind_dim1, ind_dim2])
+                    gene.w_pre_func_1[ind_dim1, ind_dim2] = self.regularize_weight(
+                        gene.w_pre_func_1[ind_dim1, ind_dim2])
+
+            # Layer 2
+            if random.random() < ss_mut_dist[1]:
+                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_pre_func_2.size))
+                for i in range(num_mutations):
+                    ind_dim1 = randint(0, gene.w_pre_func_2.shape[0] - 1)
+                    ind_dim2 = randint(0, gene.w_pre_func_2.shape[1] - 1)
+                    if random.random() < super_mut_prob:  # Super mutation
+                        gene.w_pre_func_2[ind_dim1, ind_dim2] += random.gauss(0, super_mut_strength *
+                                                                              gene.w_pre_func_2[
+                                                                                  ind_dim1, ind_dim2])
+                    else:  # Normal mutation
+                        gene.w_pre_func_2[ind_dim1, ind_dim2] += random.gauss(0, mut_strength * gene.w_pre_func_2[
+                            ind_dim1, ind_dim2])
+
+                    # Regularization hard limit
+                    gene.w_pre_func_2[ind_dim1, ind_dim2] = self.regularize_weight(
+                        gene.w_pre_func_2[ind_dim1, ind_dim2])
 
             # Layer 3
             if random.random() < ss_mut_dist[2]:
-                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_func_choice.size))
+                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_func_choice_1.size))
                 for i in range(num_mutations):
-                    ind_dim1 = randint(0, gene.w_func_choice.shape[0] - 1)
-                    ind_dim2 = randint(0, gene.w_func_choice.shape[1] - 1)
+                    ind_dim1 = randint(0, gene.w_func_choice_1.shape[0] - 1)
+                    ind_dim2 = randint(0, gene.w_func_choice_1.shape[1] - 1)
                     if random.random() < super_mut_prob:  # Super mutation
-                        gene.w_func_choice[ind_dim1, ind_dim2] += random.gauss(0,
+                        gene.w_func_choice_1[ind_dim1, ind_dim2] += random.gauss(0,
                                                                                super_mut_strength *
-                                                                               gene.w_func_choice[
+                                                                               gene.w_func_choice_1[
                                                                                    ind_dim1, ind_dim2])
                     else:  # Normal mutation
-                        gene.w_func_choice[ind_dim1, ind_dim2] += random.gauss(0, mut_strength * gene.w_func_choice[
+                        gene.w_func_choice_1[ind_dim1, ind_dim2] += random.gauss(0, mut_strength * gene.w_func_choice_1[
                             ind_dim1, ind_dim2])
 
                     # Regularization hard limit
-                    gene.w_func_choice[ind_dim1, ind_dim2] = self.regularize_weight(
-                        gene.w_func_choice[ind_dim1, ind_dim2])
+                    gene.w_func_choice_1[ind_dim1, ind_dim2] = self.regularize_weight(
+                        gene.w_func_choice_1[ind_dim1, ind_dim2])
+
+            # Layer 3
+            if random.random() < ss_mut_dist[2]:
+                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_func_choice_2.size))
+                for i in range(num_mutations):
+                    ind_dim1 = randint(0, gene.w_func_choice_2.shape[0] - 1)
+                    ind_dim2 = randint(0, gene.w_func_choice_2.shape[1] - 1)
+                    if random.random() < super_mut_prob:  # Super mutation
+                        gene.w_func_choice_2[ind_dim1, ind_dim2] += random.gauss(0,
+                                                                                 super_mut_strength *
+                                                                                 gene.w_func_choice_2[
+                                                                                     ind_dim1, ind_dim2])
+                    else:  # Normal mutation
+                        gene.w_func_choice_2[ind_dim1, ind_dim2] += random.gauss(0, mut_strength *
+                                                                                 gene.w_func_choice_2[
+                                                                                     ind_dim1, ind_dim2])
+
+                    # Regularization hard limit
+                    gene.w_func_choice_2[ind_dim1, ind_dim2] = self.regularize_weight(
+                        gene.w_func_choice_2[ind_dim1, ind_dim2])
+
+            # Layer 3
+            if random.random() < ss_mut_dist[2]:
+                num_mutations = randint(1, math.ceil(num_mutation_frac * gene.w_shape_args.size))
+                for i in range(num_mutations):
+                    ind_dim1 = randint(0, gene.w_shape_args.shape[0] - 1)
+                    ind_dim2 = randint(0, gene.w_shape_args.shape[1] - 1)
+                    if random.random() < super_mut_prob:  # Super mutation
+                        gene.w_shape_args[ind_dim1, ind_dim2] += random.gauss(0,
+                                                                                 super_mut_strength *
+                                                                                 gene.w_shape_args[
+                                                                                     ind_dim1, ind_dim2])
+                    else:  # Normal mutation
+                        gene.w_shape_args[ind_dim1, ind_dim2] += random.gauss(0, mut_strength *
+                                                                                 gene.w_shape_args[
+                                                                                     ind_dim1, ind_dim2])
+
+                    # Regularization hard limit
+                    gene.w_shape_args[ind_dim1, ind_dim2] = self.regularize_weight(
+                        gene.w_shape_args[ind_dim1, ind_dim2])
 
             # BLOCK INPUTS
             # Layer 1

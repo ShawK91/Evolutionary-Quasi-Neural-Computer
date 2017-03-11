@@ -401,8 +401,6 @@ class ECM:
             #Query phase
             h = self.rom.associative_recall(input)
 
-            #print h.shape
-
             #Primitive Function Phase
             f_args_1, f_args_2 = self.controller.get_func_args(h) #Process/Parse Query
             func_keys_1, func_keys_2 = self.controller.get_func_key(f_args_1, f_args_2) #Get Functional head keys

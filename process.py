@@ -3,39 +3,6 @@ import mod_eqnc as mod, sys
 from copy import deepcopy
 
 
-save_foldername = 'R_EQNC'
-class tracker(): #Tracker
-    def __init__(self, parameters, foldername = save_foldername):
-        self.foldername = foldername
-        self.fitnesses = []; self.avg_fitness = 0; self.tr_avg_fit = []
-        self.hof_fitnesses = []; self.hof_avg_fitness = 0; self.hof_tr_avg_fit = []
-        if not os.path.exists(foldername):
-            os.makedirs(foldername)
-        self.file_save = 'ECM.csv'
-
-    def add_fitness(self, fitness, generation):
-        self.fitnesses.append(fitness)
-        if len(self.fitnesses) > 100:
-            self.fitnesses.pop(0)
-        self.avg_fitness = sum(self.fitnesses)/len(self.fitnesses)
-        if generation % 10 == 0: #Save to csv file
-            filename = self.foldername + '/ECM_fitness.csv'
-            self.tr_avg_fit.append(np.array([generation, self.avg_fitness]))
-            np.savetxt(filename, np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
-
-    def add_hof_fitness(self, hof_fitness, generation):
-        self.hof_fitnesses.append(hof_fitness)
-        if len(self.hof_fitnesses) > 100:
-            self.hof_fitnesses.pop(0)
-        self.hof_avg_fitness = sum(self.hof_fitnesses)/len(self.hof_fitnesses)
-        if generation % 10 == 0: #Save to csv file
-            filename = self.foldername + '/' + 'hof_fitness.csv'
-            self.hof_tr_avg_fit.append(np.array([generation, self.hof_avg_fitness]))
-            np.savetxt(filename, np.array(self.hof_tr_avg_fit), fmt='%.3f', delimiter=',')
-
-    def save_csv(self, generation, filename):
-        self.tr_avg_fit.append(np.array([generation, self.avg_fitness]))
-        np.savetxt(filename, np.array(self.tr_avg_fit), fmt='%.3f', delimiter=',')
 
 class Parameters:
     def __init__(self):
@@ -55,12 +22,10 @@ class Parameters:
             self.elite_fraction = 0.1
             self.crossover_prob = 0.1
             self.mutation_prob = 0.9
-            self.weight_magnitude_limit = 100000
+            self.weight_magnitude_limit = 1000000000000
             self.mut_distribution = 3  # 1-Gaussian, 2-Laplace, 3-Uniform, ELSE-all 1s
 
 parameters = Parameters() #Create the Parameters class
-tracker = tracker(parameters) #Initiate tracker
-
 
 #Get training data
 train_upper_bound = 2000
@@ -97,7 +62,22 @@ print train_x.shape, test_x.shape, train_y.shape, test_y.shape
 class Path_finder:
     def __init__(self, parameters):
         self.parameters = parameters
-        self.agent = mod.SSNE(self.parameters)
+
+    def test_all(self, hof):
+        hof_reward = 0.0; hof_reward_test = 0.0
+        reward = 0.0; reward_test = 0.0
+        all_choices = np.arange(len(train_x))
+        for choice in all_choices:
+            hof_reward += self.hof_test(train_x[choice], train_y[choice], hof)
+            reward += self.run_simulation(train_x[choice], train_y[choice], hof)
+            hof_reward_test += self.hof_test(test_x[choice], test_y[choice], hof)
+            reward_test += self.run_simulation(test_x[choice], test_y[choice], hof)
+        hof_reward /= len(train_x)
+        reward /= len(train_x)
+        hof_reward_test /= len(test_x)
+        reward_test /= len(test_x)
+
+        return hof_reward, reward, hof_reward_test, reward_test
 
     def test_complete(self, output, target):
         is_complete = 1
@@ -163,13 +143,14 @@ class Path_finder:
         return best_epoch_reward, hof_reward
 
 if __name__ == "__main__":
-    print 'Running ECM'
+    print 'Running ECM TEST'
+
+    hof = mod.unpickle('R_EQNC/seq_recall_hof')
     task = Path_finder(parameters)
-    for gen in range(parameters.total_gens):
-        epoch_reward, hof_reward = task.evolve(gen)
-        print 'Gen:', gen, ' Ep_rew:', "%0.2f" % epoch_reward, ' Hof_rew:', "%0.2f" % hof_reward
-        tracker.add_fitness(epoch_reward, gen)  # Add average global performance to tracker
-        tracker.add_hof_fitness(hof_reward, gen)  # Add average global performance to tracker
+    hof_reward, reward, hof_reward_test, reward_test = task.test_all(hof)
+    print 'HOF REWARD:', hof_reward, ' HOF REWARD TEST:', hof_reward_test
+    print 'REWARD:', reward, ' REWARD TEST:', reward_test
+
 
 
 

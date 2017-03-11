@@ -2,6 +2,7 @@ import numpy as np, os
 import mod_eqnc as mod, sys
 from copy import deepcopy
 
+graph_dim = 4
 
 save_foldername = 'R_EQNC'
 class tracker(): #Tracker
@@ -39,14 +40,15 @@ class tracker(): #Tracker
 
 class Parameters:
     def __init__(self):
-            self.population_size = 500
+            self.population_size = 100
             self.total_gens = 10000
+            self.reward_scheme = 1 #1:Exact measure (Test + coarse feedback) #2 Raw performance in graph
 
             #ECM param
-            self.heap_x = 9
-            self.heap_y = 16
-            self.graph_dim = 4
-            self.hop_limit = 9
+            self.heap_x = graph_dim * 2 + 5
+            self.heap_y = graph_dim * graph_dim
+            self.graph_dim = graph_dim
+            self.hop_limit = graph_dim * 2 + 5
             self.num_input = self.graph_dim * self.graph_dim
             self.num_func = 3
             self.fitness_trials = 5
@@ -55,7 +57,7 @@ class Parameters:
             self.elite_fraction = 0.1
             self.crossover_prob = 0.1
             self.mutation_prob = 0.9
-            self.weight_magnitude_limit = 100000
+            self.weight_magnitude_limit = 100000000
             self.mut_distribution = 3  # 1-Gaussian, 2-Laplace, 3-Uniform, ELSE-all 1s
 
 parameters = Parameters() #Create the Parameters class
@@ -63,8 +65,10 @@ tracker = tracker(parameters) #Initiate tracker
 
 
 #Get training data
-train_upper_bound = 2000
-train_data_folder = 'Train_Data/'
+train_upper_bound = 5000
+if graph_dim == 4: train_data_folder = 'Train_Data/'
+elif graph_dim == 5: train_data_folder = 'Train_Data/5by5/'
+elif graph_dim == 7: train_data_folder = 'Train_Data/7by7/'
 train_x = []; train_y = []
 for i in range(1, train_upper_bound+1):
     x_filename = train_data_folder + 'maps/' + 'map' + str(i) +'.csv'
@@ -85,7 +89,7 @@ train_x = np.array(train_x)
 train_y = np.array(train_y)
 
 #Train-Test split
-split = int(0.2*len(train_x))
+split = int(0.8*len(train_x))
 ig = np.split(train_x, [split, len(train_x)])
 train_x = ig[0]; test_x = ig[1]
 ig = np.split(train_y, [split, len(train_y)])
@@ -111,24 +115,49 @@ class Path_finder:
         else: reward = 0.0
         return reward
 
+    def get_raw_reward(self, output, target, graph_input):
+        output_cost = 0.0
+        target_cost = 0.0
+        label_length = len(output[0])
+
+        is_match = 1
+        for i in range(len(output)-1):
+            if not is_match: output_cost -= 100
+            else: is_match = 0
+
+            for entry in graph_input:
+                #Output computation
+                if np.sum(abs(entry[0:label_length] - output[i])) == 0: #from
+                    if np.sum(abs(entry[(label_length+1):] - output[i+1])) == 0: #to
+                        output_cost -= entry[label_length]
+                        is_match = 1
+                        break
+
+        return output_cost
+
     def hof_test(self, graph_input, target_path, individual):
         output_path = individual.feedforward(graph_input)
         reward = self.test_complete(output_path, target_path)
         return reward
 
-    def get_reward(self, output, target):
-        reward = 0.0
-        for i in range(len(target)):
-            if (output[i] == target[i]).all():
-                reward += 1.0
+    def get_reward(self, output, target, graph_input):
 
-        #Normalize
-        reward /= len(target)
-        return reward
+        if self.parameters.reward_scheme == 1:
+            reward = 0.0
+            for i in range(len(target)):
+                if (output[i] == target[i]).all():
+                    reward += 1.0
+
+            #Normalize
+            reward /= len(target)
+            return reward
+
+        elif self.parameters.reward_scheme == 2:
+            return self.get_raw_reward(output, target, graph_input)
 
     def run_simulation(self, graph_input, target_path, individual):
         output_path = individual.feedforward(graph_input)
-        reward = self.get_reward(output_path, target_path)
+        reward = self.get_reward(output_path, target_path, graph_input)
         return reward
 
     def evolve(self, gen):

@@ -20,7 +20,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
             row_x = []
             #Left
             row_x += decorator_one_hot
-            row_x[i * 4 + j] = 1 #Self label
+            row_x[i * graph_dim + j] = 1 #Self label
             if j == 0: #Edge
                 row_x.append(100)
                 row_x += decorator_one_hot
@@ -28,7 +28,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
                 if x_raw[i][j-1] == -1: row_x.append(100)
                 else: row_x.append(1)
                 ig = decorator_one_hot[:]
-                ig[i * 4 + j - 1] = 1
+                ig[i * graph_dim + j - 1] = 1
                 row_x += ig
 
             if i == 0 and j == 0: x = np.reshape(np.array(row_x), (1, len(row_x)))
@@ -37,7 +37,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
 
             #Right
             row_x += decorator_one_hot
-            row_x[i * 4 + j] = 1 #Self label
+            row_x[i * graph_dim + j] = 1 #Self label
             if j == graph_dim-1: #Edge
                 row_x.append(100)
                 row_x += decorator_one_hot
@@ -45,7 +45,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
                 if x_raw[i][j+1] == -1: row_x.append(100)
                 else: row_x.append(1)
                 ig = decorator_one_hot[:]
-                ig[i * 4 + j + 1] = 1
+                ig[i * graph_dim + j + 1] = 1
                 row_x += ig
 
             x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
@@ -53,7 +53,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
 
             #Up
             row_x += decorator_one_hot
-            row_x[i * 4 + j] = 1 #Self label
+            row_x[i * graph_dim + j] = 1 #Self label
             if i == 0: #Edge
                 row_x.append(100)
                 row_x += decorator_one_hot
@@ -61,7 +61,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
                 if x_raw[i-1][j] == -1: row_x.append(100)
                 else: row_x.append(1)
                 ig = decorator_one_hot[:]
-                ig[(i-1) * 4 + j] = 1
+                ig[(i-1) * graph_dim + j] = 1
                 row_x += ig
 
             x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
@@ -69,7 +69,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
 
             #Down
             row_x += decorator_one_hot
-            row_x[i * 4 + j] = 1 #Self label
+            row_x[i * graph_dim + j] = 1 #Self label
             if i == graph_dim-1: #Edge
                 row_x.append(100)
                 row_x += decorator_one_hot
@@ -77,7 +77,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
                 if x_raw[i+1][j] == -1: row_x.append(100)
                 else: row_x.append(1)
                 ig = decorator_one_hot[:]
-                ig[(i+1) * 4 + j] = 1
+                ig[(i+1) * graph_dim + j] = 1
                 row_x += ig
 
             x = np.concatenate((x, np.reshape(np.array(row_x), (1, len(row_x)))), axis=0)
@@ -89,7 +89,7 @@ def generate_training_data(graph_dim, x_raw, y_raw):
     y = []
     for label in y_raw:
         ig = decorator_one_hot[:]
-        ig[int((label[0]-1) * 4) + int(label[1]-1)] = 1
+        ig[int((label[0]-1) * graph_dim) + int(label[1]-1)] = 1
         y.append(ig)
 
 
@@ -100,10 +100,15 @@ class ROM: #Deal with input graph (store it in a Read Only Memory)
     def __init__(self):
         self.graph = None
         self.label_length = None
+        self.result = []
+        self.filler = None
+
+
 
     def get_graph(self, graph):
         self.graph = copy.deepcopy(graph)
         self.label_length = (graph.shape[1]-1)/2
+        self.filler = [0] * (self.label_length + 1)
         start = graph[-1][0:self.label_length]
         end = graph[0][self.label_length+1:]
         return start, end
@@ -111,14 +116,14 @@ class ROM: #Deal with input graph (store it in a Read Only Memory)
     def associative_recall(self, query):
         #Sharpen
         query = (query > 0.5).astype(np.int)
-
         result = []
         for entry in self.graph:
             if np.sum(abs(entry[0:self.label_length] - query)) == 0:
                 result.append(entry[self.label_length:])
 
+
         while len(result) != 4:
-            result.append([0]*(self.label_length+1))
+            result.append(self.filler)
 
         return np.mat(np.array(result))
 

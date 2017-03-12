@@ -40,9 +40,9 @@ class tracker(): #Tracker
 
 class Parameters:
     def __init__(self):
-            self.population_size = 100
+            self.population_size = 200
             self.total_gens = 10000
-            self.reward_scheme = 1 #1:Exact measure (Test + coarse feedback) #2 Raw performance in graph
+            self.reward_scheme = 2 #1:Exact measure (Test + coarse feedback) #2 Raw performance in graph
 
             #ECM param
             self.heap_x = graph_dim * 2 + 5
@@ -51,14 +51,14 @@ class Parameters:
             self.hop_limit = graph_dim * 2 + 5
             self.num_input = self.graph_dim * self.graph_dim
             self.num_func = 3
-            self.fitness_trials = 5
+            self.fitness_trials = 50
 
             #SSNE Stuff
             self.elite_fraction = 0.1
             self.crossover_prob = 0.1
             self.mutation_prob = 0.9
-            self.weight_magnitude_limit = 100000000
-            self.mut_distribution = 3  # 1-Gaussian, 2-Laplace, 3-Uniform, ELSE-all 1s
+            self.weight_magnitude_limit = 1000000
+            self.mut_distribution = 2  # 1-Gaussian, 2-Laplace, 3-Uniform, ELSE-all 1s
 
 parameters = Parameters() #Create the Parameters class
 tracker = tracker(parameters) #Initiate tracker
@@ -122,7 +122,7 @@ class Path_finder:
 
         is_match = 1
         for i in range(len(output)-1):
-            if not is_match: output_cost -= 100
+            if not is_match: output_cost -= 1000
             else: is_match = 0
 
             for entry in graph_input:
@@ -132,6 +132,12 @@ class Path_finder:
                         output_cost -= entry[label_length]
                         is_match = 1
                         break
+
+        #Test if reached goal
+        if np.sum(abs(output[-1] - target[-1])) != 0:
+            output_cost -= 10000
+
+
 
         return output_cost
 

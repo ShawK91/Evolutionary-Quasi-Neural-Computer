@@ -165,8 +165,6 @@ class Primitive_fnc_mod:
     def __init__(self):
         self.key = None
 
-
-
     def func_operation(self, func_keys, *args):
         self.key = np.argmax(func_keys)
         if self.key == 2:
@@ -218,6 +216,9 @@ class Primitive_fnc_mod:
         ig = np.arange(args[0].shape[0])
         np.random.shuffle(ig)
         return np.mat(ig).transpose()
+
+    def identity(self, args):
+        return args
 
 class Controller:
     def __init__(self, num_input, num_function, mean = 0, std = 1):
@@ -415,9 +416,6 @@ class ECM:
 
             post_func = self.prim_fnc.func_operation(func_keys_1, final_args, last_input)
 
-
-
-            #print args.shape, func_keys.shape, post_func.shape
 
             #Update input for next hop
             last_input = input[:]
